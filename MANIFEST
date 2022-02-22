@@ -1,0 +1,2 @@
+REPO celo
+LOAD celo.yaml attestation-service.yaml attestation-service-cluster.yaml

@@ -1,0 +1,292 @@
+namespace: /celo
+attestation-service:
+  defines: runnable
+  version: latest
+  metadata:
+    defines: metadata
+    currency: CELO
+    description: Celo is a platform acting as a global payment infrastructure for cryptocurrencies
+      that aims to target mobile users.To this end, Celo’s goal is for financial activity to be
+      accessible to anyone globally thanks to its ability for payments to be sent to and from any
+      phone number in the world.
+    white-paper: https://celo.org/papers
+    network-name: mainnet
+    twitter: https://twitter.com/celo-org
+    icon: https://assets.coingecko.com/coins/images/11090/small/icon-celo-CELO-color-500.png?1592293590
+    publisher: keyko.io
+    consensus-type: Proof of Stake
+    node-type: full
+    reddit: https://www.reddit.com/r/celo/
+    name: Celo
+    website: https://www.celo.org/
+    facebook: https://www.facebook.com/CeloOrg/
+    tags: blockchain
+    source: https://github.com/celo-org/
+  variables:
+    defines: variables
+    host:
+      description: The hostname of the celo-attestation-service
+      type: string
+      value: 0.0.0.0
+    http-port:
+      description: The port for the HTTP server
+      type: int
+      value: 3000
+    internal-volume:
+      description: The volume for the internal server
+      value: /root/.celo
+      type: string
+    volume:
+      description: The volume for the celo-attestation-service
+      type: string
+      value: <- `${moncc-volume-path}/celo-attestation-service`
+    database-name:
+      description: The name of the database
+      type: string
+      value: attestation-service
+    database-url-prefix:
+      description: The prefix for the database url
+      type: string
+      value: <- "postgres://postgres:password@" get-hostname("celo/attestation-service-postgresql", "postgres") ":5432/" concat-all
+    node-env:
+      description: The node environment
+      type: string
+      value: production
+    celo-provider:
+      description: The celo provider
+      type: string
+      value: wss://alfajores-forno.celo-testnet.org/ws
+    attestation-signer-address:
+      description: The address of the attestation signer
+      type: string
+      value: 0x8...
+    celo-validator-address:
+      description: The address of the celo validator
+      type: string
+      value: 0x23...
+    attestation-signer-keystore-passphrase:
+      description: The passphrase for the attestation signer keystore
+      type: string
+      value: ""
+    attestation-signer-keystore-dirpath:
+      description: The directory path for the attestation signer keystore
+      type: string
+      value: /root/.celo
+    log-format:
+      description: Logging format
+      type: string
+      value: stackdriver
+    sms-providers:
+      description: List of sms providers
+      type: string
+      value: twilio,nexmo,telekom
+    sms-providers-randomized:
+      description: List of sms providers
+      type: int
+      value: 1
+    nexmo-key:
+      description: The API key to the Nexmo API
+      type: string
+      value: ""
+    nexmo-secret:
+      description: The API secret to the Nexmo API
+      type: string
+      value: ""
+    messagebird-api-key:
+      description: The API key to the MessageBird API
+      type: string
+      value: ""
+    telekom-api-key:
+      description: The API key to the Telekom API
+      type: string
+      value: ""
+    telekom-from:
+      description: The from number to use for the Telekom API
+      type: string
+      value: ""
+    twilio-account-sid:
+      description: The account id to the Twilio API
+      type: string
+      value: ""
+    twilio-messaging-service-sid:
+      description: The Twilio Message Service ID. Starts with MG
+      type: string
+      value: ""
+    twilio-verify-service-sid:
+      description: The Twilio Verify Service ID. Starts with VA 
+      type: string
+      value: ""
+    twilio-auth-token:
+      description: The auth token to the Twilio API
+      type: string
+      value: ""
+  checks:
+    defines: checks
+    readiness:
+      code: |
+        exec("attestation-service", "wget", "-qO-",  "localhost:3000/healthz") "live" contains?
+      period: 30
+      initialDelay: 300
+  containers:
+    defines: containers
+    attestation-service:
+      paths:
+      - <- `${volume}:${internal-volume}`
+      ports:
+      - <- `${host}:${http-port}:${http-port}/tcp`
+      image: us.gcr.io/celo-testnet/celo-monorepo
+      image-tag: attestation-service-v1.1.0
+      bash: /entrypoint.sh
+      environment:
+        - <- `ATTESTATION_SIGNER_ADDRESS=${attestation-signer-address}`
+        - <- `CELO_VALIDATOR_ADDRESS=${celo-validator-address}`
+        - <- `ATTESTATION_SIGNER_KEYSTORE_PASSPHRASE=${attestation-signer-keystore-passphrase}`
+        - <- `ATTESTATION_SIGNER_KEYSTORE_DIRPATH=${attestation-signer-keystore-dirpath}`
+        - <- `DATABASE_NAME=${database-name}`
+        - <- `DATABASE_URL_PREFIX=${database-url-prefix}`
+        - <- `DATABASE_URL=${database-url-prefix}${database-name}`
+        - <- `NODE_ENV=${node-env}`
+        - <- `CELO_PROVIDER=${celo-provider}`
+        - <- `LOG_FORMAT=${log-format}`
+        - <- `NEXMO_KEY=${nexmo-key}`
+        - <- `NEXMO_SECRET=${nexmo-secret}`
+        - <- `SMS_PROVIDERS=${sms-providers}`
+        - <- `SMS_PROVIDERS_RANDOMIZED=${sms-providers-randomized}`
+        - <- `MESSAGEBIRD_API_KEY=${messagebird-api-key}`
+        - <- `TELEKOM_API_KEY=${telekom-api-key}`
+        - <- `TELEKOM_FROM=${telekom-from}`
+        - <- `TWILIO_ACCOUNT_SID=${twilio-account-sid}`
+        - <- `TWILIO_MESSAGING_SERVICE_SID=${twilio-messaging-service-sid}`
+        - <- `TWILIO_VERIFY_SERVICE_SID=${twilio-verify-service-sid}`
+        - <- `TWILIO_AUTH_TOKEN=${twilio-auth-token}`
+  files:
+    defines: files
+    entrypoint:
+      container: attestation-service
+      mode: 0777
+      path: /entrypoint.sh
+      contents: |
+        export DATABASE_URL=$DATABASE_URL_PREFIX$DATABASE_NAME
+        sleep 30
+        yarn sequelize db:create $DATABASE_NAME
+        yarn db:migrate
+        sleep 5
+        # NEXMO_APPLICATIONS={{- range $index, $application := .Values.attestation_service.nexmo.applications -}}{{ $application }},{{- end }}
+        # NEXMO_APPLICATION=`echo -n $NEXMO_APPLICATIONS | cut -d ',' -f $((RID + 1))`
+        # ATTESTATION_SIGNER_ADDRESS=`cat /root/.celo/attestationSignerAddress`
+        # CELO_VALIDATOR_ADDRESS=`cat /root/.celo/address`
+        # ATTESTATION_SIGNER_KEYSTORE_PASSPHRASE=`cat /root/.celo/password`
+        yarn start || true
+        tail -f /dev/null
+  requirements:
+    defines: requirements
+    GPU: false
+    CPU: 2 Cores
+    disk: 1000
+    RAM: 4096
+
+
+attestation-service-postgresql:
+  defines: runnable
+  inherits: postgres/latest
+
+attestation-service-lightest-node:
+  defines: runnable
+  inherits: celo/lightest
+  variables:
+    syncmode:
+      value: lightest
+    http-options:
+      value: <- `--http --http.api "${apis}" --http.addr 0.0.0.0 --http.port ${http-port}
+        --http.rpcprefix / --http.vhosts="*" --http.corsdomain="*"`
+    ws-options:
+      value: <- `--ws --ws.api "${apis}" --ws.addr 0.0.0.0 --ws.port ${ws-port}
+        --ws.rpcprefix / --ws.origins="*"`
+    account-password:
+      value: "test1234"
+    account-address:
+      value: "0x39..."
+    extra-options:
+      value: <- `--unlock=${account-address} --password /root/.celo/account/accountSecret --allow-insecure-unlock`
+    node-private-key:
+      value: "58..."
+    entrypoint-extra-snippet:
+      value: <- `
+        mkdir -p /root/.celo/account &&
+        echo '${account-password}' > /root/.celo/account/accountSecret &&
+        `
+
+attestation-service-app:
+  defines: runnable
+  inherits: celo/attestation-service
+  variables:
+    port:
+      value: 3000
+    database-name:
+      type: string
+      value: attestation-service
+    celo-provider:
+      type: string
+      value: <- "http://" get-hostname("celo/attestation-service-lightest-node", "celo-node") ":8545" concat-all
+    attestation-signer-address:
+      type: string
+      value: 0x12....
+    celo-validator-address:
+      type: string
+      value: 0x34..
+    # Add your attestation-service credentials for different sms providers
+    twilio-account-sid:
+      type: string
+      value: "<TWILIO_ACCOUNT_SID>"
+    twilio-messaging-service-sid:
+      type: string
+      value: "<TWILIO_SERVICE_SID>"
+    twilio-verify-service-sid:
+      type: string
+      value: "<TWILIO_VERIFY_SERVICE_SID>"
+    twilio-auth-token:
+      type: string
+      value: "<TWILIO_AUTH_TOKEN>"
+    sms-providers:
+      type: string
+      value: twilio
+  depends:
+    defines: depends
+    wait-for:
+      runnables:
+        - celo/attestation-service-lightest-node
+        - celo/attestation-service-postgresql
+      timeout: 60
+
+attestation-service-nginx:
+  defines: runnable
+  inherits: nginx/reverse-proxy-ssl-certbot
+  variables:
+    proxy-pass-url: <- get-hostname("celo/attestation-service-app", "attestation-service")
+    proxy-pass-port: 3000
+    ssl: true
+    server-name: celo-attestations-service-monk-test.keyko.rocks
+    email: javi@keyko.io
+  depends:
+    defines: depends
+    wait-for:
+      runnables:
+        - celo/attestation-service-lightest-node
+        - celo/attestation-service-postgresql
+        - celo/attestation-service-app
+      timeout: 60
+
+attestation-service-cluster:
+  defines: process-group
+  runnable-list:
+    - /celo/attestation-service-lightest-node
+    - /celo/attestation-service-postgresql
+    - /celo/attestation-service-app
+    - /celo/attestation-service-nginx
+  balancers:
+    defines: balancers
+    app-balancer:
+      type: elastic-ip
+      instances:
+      - /celo/attestation-service-nginx
+

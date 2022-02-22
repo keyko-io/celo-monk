@@ -1,0 +1,447 @@
+namespace: /celo
+
+common:
+  metadata:
+    defines: metadata
+    tags: blockchain,ethereum,celo,mobile
+    currency: CELO
+    description: Celo is a platform acting as a global payment infrastructure for cryptocurrencies
+      that aims to target mobile users.To this end, Celo's goal is for financial activity to be
+      accessible to anyone globally thanks to its ability for payments to be sent to and from any
+      phone number in the world.
+      This stacks includes a validator+proxy setup
+    name: Celo
+    source: https://github.com/celo-org/
+    icon: https://assets.coingecko.com/coins/images/11090/small/icon-celo-CELO-color-500.png?1592293590
+    publisher: keyko.io
+    website: https://www.celo.org/
+    white-paper: https://celo.org/papers
+    network-name: mainnet
+    twitter: https://twitter.com/celo-org
+    consensus-type: Proof of Stake
+    reddit: https://www.reddit.com/r/celo/
+    facebook: https://www.facebook.com/CeloOrg/
+  requirements:
+    defines: requirements
+    GPU: false
+    CPU: 2 Cores
+    disk: 50000
+    RAM: 4096
+  variables:
+    defines: variables
+    network:
+      description: "Network were the node is syncing. Celo has currently rc1(mainnet) and alfajores and baklava (test networks)."
+      type: string
+      value: ""
+    host:
+      description: "Hostname of the node"
+      type: string
+      value: 0.0.0.0
+    p2p-port:
+      description: "P2p connection port"
+      # Not change so far. There is dependency with the value of proxy
+      type: int
+      value: 30303
+    http-port:
+      description: "HTTP connection port"
+      type: int
+      value: 8545
+    ws-port:
+      description: "Web Socket connection port"
+      type: int
+      value: 8545
+    apis:
+      description: "Currently node apis exposed."
+      type: string
+      value: "eth,net,web3,debug"
+    http-options:
+      description: "Node http options."
+      type: string
+      value: <- `--http --http.api "${apis}" --http.addr ${host} --http.port ${http-port}
+        --http.rpcprefix / --http.corsdomain '*' --http.vhosts '*'`
+    ws-options:
+      description: "Node websocket options."
+      type: string
+      value: <- `--ws --ws.api "${apis}" --ws.addr ${host} --ws.port ${ws-port}
+        --ws.rpcprefix / --ws.origins '*'`
+    extra-options:
+      description: "Node extra options."
+      type: string
+      value: ""
+    docker-image:
+      description: "Geth image from celo."
+      type: string
+      value: us.gcr.io/celo-org/geth
+    docker-tag:
+      description: "Docker image tag from celo."
+      type: string
+      value: 1.5.2
+    internal-volume:
+      description: "Path to mount the internal volume."
+      type: string
+      value: /root/.celo
+    syncmode:
+      description: "Mode of node syncing. Support full, lightest."
+      type: string
+      value: full
+    volume:
+      description: "Path to mount the external volume."
+      type: string
+      value: <- `${moncc-volume-path}/celo`
+    entrypoint-extra-snippet:
+      description: "Extra snippet to be added to entrypoint. Adding extra configuration to run before the node is up."
+      type: string
+      value: ""
+    entrypoint:
+      description: "Path to the entrypoint file."
+      type: string
+      value: <- `/root/.celo/entry-point.sh`
+    node-private-key:
+      description: "Private key of the node."
+      type: string
+      value: a437926dbd3a7816cf991a34457b3ab9f12e3f4cc079b2c92578819d495ca00b
+    # Proxy related
+    validator-signer-account:
+      description: "Account address for the validator node."
+      type: string
+      value: 0x66...
+    proxy-private-key:
+      description: "Private key of the proxy node."
+      type: string
+      value: a4...
+    proxy-address:
+      description: "Proxy account address."
+      type: string
+      value: 0x0b...
+  containers:
+    defines: containers
+    celo-node:
+      paths:
+      - <- `${volume}:${internal-volume}`
+      ports:
+      - <- `0.0.0.0:${http-port}:${http-port}/tcp`
+      - <- `${host}:${p2p-port}:${p2p-port}/udp`
+      entrypoint: <- `${entrypoint}`
+      image-tag:  <- `${docker-tag}`
+      image: <- `${docker-image}`
+  actions:
+    defines: actions
+    health:
+      description: Basic healtcheck
+      arguments: {}
+      code: exec("celo-node", "/bin/sh", "-c", `wget -q -O /dev/null -o /dev/null http://localhost:8545/; health_http_code=$?; if [[ "$health_http_code" -ne 200 ]] ; then echo "false"; else echo "true"; fi`)
+    shutdown:
+      description: Kills gracefully the geth process
+      arguments: {}
+      code: exec("celo-node", "/bin/sh", "-c", `kill -15 1`)
+  files:
+    defines: files
+    pkey:
+      container: celo-node
+      path: /root/.celo/pkey
+      mode: 400
+      contents: |
+        {{ v "node-private-key" }}
+    entrypoint:
+      container: celo-node
+      path: /root/.celo/entry-point.sh
+      mode: 0700
+      contents: |
+        #!/bin/sh
+        cat /root/.celo/entry-point.sh
+        {{ v "entrypoint-extra-snippet" }}
+        geth account import --password /root/.celo/account/accountSecret /root/.celo/pkey || true
+        exec geth --port {{ v "p2p-port" }} --syncmode {{ v "syncmode" }} {{ v "network" }} \
+        {{ v "http-options" }} {{ v "ws-options" }} --datadir {{ v "internal-volume" }} \
+        {{ v "extra-options" }}
+        tail -f /dev/null
+
+full-node:
+  defines: runnable
+  inherits: ./latest
+  variables:
+    volume:
+      type: string
+      value: <- `${moncc-volume-path}/celo-full`
+
+lightest:
+  defines: runnable
+  inherits: ./latest
+  requirements:
+    disk: 400
+  variables:
+    volume:
+      type: string
+      value: <- `${moncc-volume-path}/celo-lightest`
+    syncmode:
+      value: lightest
+
+latest:
+  defines: runnable
+  inherits: ./v1.5.2
+
+v1.5.2:
+  defines: runnable
+  inherits: ./common
+  version: v1.5.2
+  containers:
+    celo-node:
+      image-tag: 1.5.2
+
+proxy:
+  defines: runnable
+  inherits: ./latest
+  variables:
+    defines: variables
+    http-options:
+      description: "Node http options."
+      type: string
+      value: <- `--http --http.api "${apis}" --http.addr 127.0.0.1 --http.port ${http-port}
+        --http.rpcprefix / `
+    ws-options:
+      description: "Node websocket options."
+      type: string
+      value: <- `--ws --ws.api "${apis}" --ws.addr 127.0.0.1 --ws.port ${ws-port}
+        --ws.rpcprefix /`
+    volume:
+      description: "Path to mount the external volume."
+      type: string
+      value: <- `${moncc-volume-path}/celo-proxy`
+    validator-signer-account:
+      description: "Account address for the validator node."
+      type: string
+      value: 0x81...
+    proxy-private-key:
+      description: "Private key of the proxy node."
+      type: string
+      value: a4...
+    proxy-address:
+      description: "Proxy account address."
+      type: string
+      value: 0x0b...
+    proxy-signer-password:
+      description: "Password for the proxy account."
+      type: string
+      value: secret
+    proxy-options:
+      description: "Proxy options."
+      type: string
+      value: <- `--nodekey=/root/.celo/pkey --proxy.proxiedvalidatoraddress ${validator-signer-account}
+        --proxy.proxy --proxy.internalendpoint :30503 --unlock=${proxy-address}
+        --password /root/.celo/account/accountSecret --allow-insecure-unlock --proxy.allowprivateip
+        --etherbase=${proxy-address}`
+  containers:
+    defines: containers
+    celo-node:
+      paths:
+      - <- `${volume}:${internal-volume}`
+      ports:
+      - <- `0.0.0.0:${http-port}:${http-port}/tcp`
+      - <- `${host}:${p2p-port}:${p2p-port}/udp`
+      - <- `${host}:30503:30503/tcp`
+      entrypoint: <- `${entrypoint}`
+      image-tag:  <- `${docker-tag}`
+      image: <- `${docker-image}`
+  checks:
+    defines: checks
+    readiness:
+      # If validator connects when proxy has not started to sync -> connection is not stablished ok
+      code: |
+        exec("celo-node", "geth", "attach", "--exec",  "eth.syncing") "currentBlock" contains?
+      period: 30
+      initialDelay: 300
+  files:
+    defines: files
+    password:
+      container: celo-node
+      path: /root/.celo/account/accountSecret
+      mode: 400
+      contents: |
+        <- `${proxy-signer-password}`
+    pkey:
+      container: celo-node
+      path: /root/.celo/pkey
+      mode: 400
+      contents: |
+        <- `${proxy-private-key}`
+    entrypoint:
+      container: celo-node
+      path: /root/.celo/entry-point.sh
+      mode: 0700
+      contents: |
+        #!/bin/sh
+        geth account import --password /root/.celo/account/accountSecret /root/.celo/pkey || true
+        exec geth --port {{ v "p2p-port" }} \
+          --syncmode {{ v "syncmode" }} {{ v "network" }} \
+          --datadir {{ v "internal-volume" }} \
+          {{ v "proxy-options" }} \
+          {{ v "http-options" }} \
+          {{ v "ws-options" }} \
+          {{ v "extra-options" }}
+validator:
+  defines: runnable
+  inherits: ./latest
+  variables:
+    defines: variables
+    http-options:
+      description: "Node http options."
+      type: string
+      value: <- `--http --http.api "${apis}" --http.addr 127.0.0.1 --http.port ${http-port}
+        --http.rpcprefix /`
+    ws-options:
+      description: "Node websocket options."
+      type: string
+      value: <- `--ws --ws.api "${apis}" --ws.addr 127.0.0.1 --ws.port ${ws-port}
+        --ws.rpcprefix /`
+    volume:
+      description: "Path to mount the external volume."
+      type: string
+      value: <- `${moncc-volume-path}/celo-validator`
+    pkey:
+      description: "Private key of the validator node."
+      type: string
+      value: a4...
+    validator-signer-account:
+      description: "Account address for the validator node."
+      type: string
+      value: 0x81...
+    validator-signer-private-key:
+      description: "Private key of the validator node."
+      type: string
+      value: 33...
+    validator-signer-password:
+      description: "Password for the validator account. The account will be imported from the using the private key and this password"
+      type: string
+      value: secret
+    validator-options:
+      description: "Validator options."
+      type: string
+      value: <- `--mine --unlock ${validator-signer-account}
+        --password /root/.celo/account/accountSecret --allow-insecure-unlock
+        --miner.validator ${validator-signer-account} --tx-fee-recipient ${validator-signer-account}`
+    proxy-enode-address:
+      description: "Proxy enode address."
+      type: string
+      value: f1...
+    proxy-internal-ip:
+      description: "Internal ip of the proxy node."
+      type: string
+      value: ""
+    proxy-hostname:
+      description: "Hostname of the proxy node."
+      type: string
+      value: <- get-hostname("celo/proxy", "celo-node")
+    proxy-external-ip:
+      description: "External ip of the proxy node."
+      type: string
+      value: <- peer-ip-address("celo/proxy")
+    proxied-options:
+      description: "Proxied options."
+      type: string
+      value: <- `--proxy.proxied --nodiscover --proxy.allowprivateip`
+  containers:
+    defines: containers
+    celo-node:
+      paths:
+      - <- `${volume}:${internal-volume}`
+      ports:
+      - <- `${host}:${p2p-port}:${p2p-port}/tcp`
+      - <- `${host}:${p2p-port}:${p2p-port}/udp`
+      entrypoint: <- `${entrypoint}`
+      image-tag:  <- `${docker-tag}`
+      image: <- `${docker-image}`
+  files:
+    defines: files
+    password:
+      container: celo-node
+      path: /root/.celo/account/accountSecret
+      mode: 400
+      contents: |
+        <- `${validator-signer-password}`
+    pkey:
+      container: celo-node
+      path: /root/.celo/pkey
+      mode: 400
+      contents: |
+        <- `${validator-signer-private-key}`
+    entrypoint:
+      container: celo-node
+      path: /root/.celo/entry-point.sh
+      mode: 0700
+      contents: |
+        #!/bin/sh
+        proxy_internal_ip='{{ v "proxy-internal-ip" }}'
+        proxy_hostname='{{ v "proxy-hostname" }}'
+        if [[ "$proxy_internal_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+          .
+        elif [[ ! -z "$proxy_hostname" ]] && [[ "$proxy_hostname" != "<no value>" ]]; then
+          proxy_internal_ip=$(getent hosts "{{ v "proxy-hostname" }}" | awk '{ print $1 }')
+        else
+          echo "No proxy internal ip detected. Please check it is running" && exit 1
+        fi
+        nat_ip=$(hostname -i | cut -d' ' -f2)
+        proxy_external_ip='{{ v "proxy-external-ip" }}'
+        [[ -z "$proxy_external_ip" ]] && echo "No proxy external ip detected. Please check it is running" && exit 1
+        proxy_enode_url="enode://{{ v "proxy-enode-address" }}@$proxy_internal_ip:30503;enode://{{ v "proxy-enode-address" }}@$proxy_external_ip:30303"
+        geth account import --password /root/.celo/account/accountSecret /root/.celo/pkey || true
+        # sleep 100
+        geth --port {{ v "p2p-port" }} \
+          --syncmode {{ v "syncmode" }} {{ v "network" }} \
+          --datadir {{ v "internal-volume" }} \
+          {{ v "validator-options" }} \
+          {{ v "proxied-options" }} --proxy.proxyenodeurlpairs $proxy_enode_url \
+          --nat=extip:$nat_ip \
+          {{ v "http-options" }} \
+          {{ v "ws-options" }} \
+          {{ v "extra-options" }} || true
+        tail -f /dev/null
+proxy-1:
+  defines: runnable
+  inherits: celo/proxy
+  variables:
+    defines: variables
+    validator-signer-account:
+      type: string
+      value: 0x66...
+    proxy-private-key:
+      type: string
+      value: a4...
+    proxy-address:
+      type: string
+      value: 0x0b...
+
+validator-1:
+  defines: runnable
+  inherits: celo/validator
+  variables:
+    defines: variables
+    validator-signer-account:
+      type: string
+      value: 0x66...
+    validator-signer-private-key:
+      type: string
+      value: c3...
+    validator-signer-password:
+      type: string
+      value: secret
+    proxy-enode-address:
+      type: string
+      value: f1...
+    proxy-hostname:
+      type: string
+      value: <- get-hostname("celo/proxy-1", "celo-node")
+    proxy-external-ip:
+      type: string
+      value: <- peer-ip-address("celo/proxy-1")
+  depends:
+    defines: depends
+    wait-for:
+      runnables:
+        - celo/proxy-1
+      timeout: 60
+
+validator-proxy-stack:
+  defines: process-group
+  runnable-list:
+    - celo/proxy-1
+    - celo/validator-1
